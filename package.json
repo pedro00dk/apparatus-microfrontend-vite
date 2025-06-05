@@ -1,7 +1,7 @@
 {
     "name": "@_apparatus_/microfrontend-vite",
     "description": "A Vite plugin and a runtime utility for building and managing ECMAScript module-based microfrontends (MFEs).",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "type": "module",
     "license": "MIT",
     "repository": {
