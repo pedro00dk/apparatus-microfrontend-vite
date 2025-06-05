@@ -1,0 +1,45 @@
+{
+    "name": "@_apparatus_/microfrontend-vite",
+    "description": "A Vite plugin and a runtime utility for building and managing ECMAScript module-based microfrontends (MFEs).",
+    "version": "1.0.0",
+    "type": "module",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/pedro00dk/apparatus-microfrontend-vite"
+    },
+    "author": {
+        "name": "Pedro Henrique",
+        "email": "pedro00dk@gmail.com"
+    },
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        },
+        "./plugin": {
+            "import": "./dist/plugin.js",
+            "types": "./dist/plugin.d.ts"
+        }
+    },
+    "keywords": [
+        "css",
+        "class",
+        "classes",
+        "classname",
+        "classnames",
+        "clsx",
+        "util"
+    ],
+    "scripts": {
+        "build": "vite build && tsc",
+        "test": "node --test ./**/*.test.*"
+    },
+    "devDependencies": {
+        "@types/node": "^22.15.0",
+        "magic-string": "^0.30.0",
+        "typescript": "^5.8.0",
+        "vite": "^6.3.0"
+    }
+}
