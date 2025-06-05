@@ -24,13 +24,13 @@
         }
     },
     "keywords": [
-        "css",
-        "class",
-        "classes",
-        "classname",
-        "classnames",
-        "clsx",
-        "util"
+        "microfrontend",
+        "mfe",
+        "module",
+        "federation",
+        "vite",
+        "plugin",
+        "ECMAScript"
     ],
     "scripts": {
         "build": "vite build && tsc",
