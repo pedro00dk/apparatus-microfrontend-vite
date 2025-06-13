@@ -6,17 +6,16 @@ import indexHtmlTemplate from './index.html?raw'
 declare global {
     interface ImportMetaEnv {
         NAME: '__name__'
-        KEY: '__key__'
     }
 
     interface Window {
-        '__key__-shadow'?: WeakRef<ShadowRoot>
-        '__key__-styles'?: { [_ in string]: string }
+        '__name__-shadow'?: WeakRef<ShadowRoot>
+        '__name__-styles'?: { [_ in string]: string }
     }
 
     interface WindowEventMap {
-        '__key__-styles': CustomEvent<string>
-        '__key__-styles-request': CustomEvent
+        '__name__-styles': CustomEvent<string>
+        '__name__-styles-request': CustomEvent
     }
 }
 
@@ -26,10 +25,14 @@ declare global {
  * @param name MFE name.
  * @param entries Entries aliases and paths.
  */
-export const mfe = (name: string, entries: { [_ in string]: string }): PluginOption => {
-    const key = `${name}-${crypto.randomUUID().slice(0, 8)}`
-    return [mfeBase(name, key), mfeEsm(entries), mfeHtml(entries), mfeCss(key), mfeSolid(key), mfeReact()]
-}
+export const mfe = (name: string, entries: { [_ in string]: string }): PluginOption => [
+    mfeBase(name),
+    mfeEsm(entries),
+    mfeHtml(entries),
+    mfeCss(name),
+    mfeSolid(name),
+    mfeReact(),
+]
 
 /**
  * MfeBase plugin sets configurations for proper MFE loading in production builds or development server.
@@ -47,13 +50,12 @@ export const mfe = (name: string, entries: { [_ in string]: string }): PluginOpt
  * enabled for the same purpose.
  *
  * @param name MFE name.
- * @param key MFE key.
  */
-const mfeBase = (name: string, key: string): Plugin => ({
+const mfeBase = (name: string): Plugin => ({
     name: 'mfe:base',
     config: ({ server: { port = 5173 } = {} }, { mode }) => ({
         base: './',
-        define: { 'import.meta.env.NAME': JSON.stringify(name), 'import.meta.env.KEY': JSON.stringify(key) },
+        define: { 'import.meta.env.NAME': JSON.stringify(name) },
         server: { cors: true, origin: mode === 'development' ? `http://localhost:${port}` : undefined },
         preview: { cors: true },
     }),
@@ -124,7 +126,7 @@ const mfeHtml = (entries: { [_ in string]: string }): Plugin => {
 /**
  * MfeCss plugin changes Vite's CSS handling to allow injection into JS using custom events.
  *
- * `${env.KEY}-styles` event publishes styles. `${env.KEY}-styles-request` is used to re-fire the event.
+ * `${env.NAME}-styles` event publishes styles. `${env.NAME}-styles-request` is used to re-fire the event.
  * The events can be listened to build style tags dynamically, it works with HMR and lazy loading.
  *
  * ### Build
@@ -136,24 +138,24 @@ const mfeHtml = (entries: { [_ in string]: string }): Plugin => {
  *
  * The development server emit JS files modules for CSS. These modules are modified to dispatch events with CSS.
  *
- * @param key MFE key.
+ * @param name MFE name.
  */
-const mfeCss = (key: string): Plugin => {
-    const dispatch = (key: ImportMetaEnv['KEY'], id: string, style: string) => {
-        const setup = !window[`${key}-styles`]
-        const styles = (window[`${key}-styles`] ??= {})
+const mfeCss = (name: string): Plugin => {
+    const dispatch = (name: ImportMetaEnv['NAME'], id: string, style: string) => {
+        const setup = !window[`${name}-styles`]
+        const styles = (window[`${name}-styles`] ??= {})
         styles[id] = style
-        const event = () => new CustomEvent(`${key}-styles`, { detail: Object.values(styles).join('\n') })
-        if (setup) addEventListener(`${key}-styles-request`, () => dispatchEvent(event()))
-        dispatchEvent(new Event(`${key}-styles-request`))
+        const event = () => new CustomEvent(`${name}-styles`, { detail: Object.values(styles).join('\n') })
+        if (setup) addEventListener(`${name}-styles-request`, () => dispatchEvent(event()))
+        dispatchEvent(new Event(`${name}-styles-request`))
     }
     return {
         name: 'mfe:css',
         enforce: 'post',
         transform: code =>
             code
-                .replace(/__vite__updateStyle\(.+?\)/, `;(${dispatch})(\`${key}\`,__vite__id,__vite__css)`)
-                .replace(/__vite__removeStyle\(.+?\)/, `(${dispatch})(\`${key}\`,__vite__id,'')`),
+                .replace(/__vite__updateStyle\(.+?\)/, `;(${dispatch})(\`${name}\`,__vite__id,__vite__css)`)
+                .replace(/__vite__removeStyle\(.+?\)/, `(${dispatch})(\`${name}\`,__vite__id,'')`),
         generateBundle: (_, bundle) => {
             const html = Object.values(bundle).filter(({ fileName }) => fileName.endsWith('.html')) as OutputAsset[]
             const css = Object.values(bundle).filter(({ fileName }) => fileName.endsWith('.css')) as OutputAsset[]
@@ -163,7 +165,7 @@ const mfeCss = (key: string): Plugin => {
                 const styles = css.filter(({ fileName }) => chunk.viteMetadata?.importedCss.has(fileName))
                 if (!styles.length) return
                 const style = styles.map(({ source }) => source.toString().trim().replaceAll('`', '\\`')).join('\n')
-                chunk.code = `${chunk.code}\n\n;(${dispatch})(\`${key}\`,\`${chunk.name}\`,\`${style}\`)`
+                chunk.code = `${chunk.code}\n\n;(${dispatch})(\`${name}\`,\`${chunk.name}\`,\`${style}\`)`
                 chunk.viteMetadata?.importedCss.clear()
             })
         },
@@ -174,15 +176,15 @@ const mfeCss = (key: string): Plugin => {
  * MfeSolid plugin enables injection of a custom container to replace `window.document` in `solid-js/web`.
  *
  * This is required when using `@webcomponents/scoped-custom-element-registry` to use a shadow DOM as document.
- * Injection works by setting `window[`${env.KEY}-shadow`] to a `WeakRef` of the shadow root to be used.
+ * Injection works by setting `window[`${env.NAME}-shadow`] to a `WeakRef` of the shadow root to be used.
  *
- * @param key MFE key.
+ * @param name MFE name.
  */
-const mfeSolid = (key: string): Plugin => ({
+const mfeSolid = (name: string): Plugin => ({
     name: 'mfe:solid',
     transform: code => {
         const ms = new MagicString(code)
-        ms.replaceAll('document.importNode', `(window[\`${key}-shadow\`]?.deref()??document).importNode`)
+        ms.replaceAll('document.importNode', `(window[\`${name}-shadow\`]?.deref()??document).importNode`)
         return { code: ms.toString(), map: ms.generateMap({ hires: true }) }
     },
 })
