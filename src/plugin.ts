@@ -1,45 +1,53 @@
 import MagicString from 'magic-string'
-import { OutputAsset, OutputChunk } from 'rollup'
-import { Plugin, PluginOption } from 'vite'
-import indexHtmlTemplate from './index.html?raw'
+import { OutputAsset, OutputChunk, RollupOutput } from 'rollup'
+import { build, InlineConfig, Plugin, PluginOption } from 'vite'
 
 declare global {
     interface ImportMetaEnv {
-        NAME: '__name__'
+        MFE: '__mfe__'
     }
 
     interface Window {
-        '__name__-shadow'?: WeakRef<ShadowRoot>
-        '__name__-styles'?: { [_ in string]: string }
+        '__mfe__-shadow'?: WeakRef<ShadowRoot>
+        '__mfe__-styles'?: { [_ in string]: string }
     }
 
     interface WindowEventMap {
-        '__name__-styles': CustomEvent<string>
-        '__name__-styles-request': CustomEvent
+        '__mfe__-styles': CustomEvent<string>
+        '__mfe__-styles-request': CustomEvent
     }
 }
 
 /**
- * MFE plugin container. See individual plugin functions for documentation.
+ * MFE plugin container. See individual plugin functions for details.
+ *
+ * The MFE `name` can be anything, as long as it is unique when used together with multiple MFEs in a host application.
+ *
+ * Script `entries` keys should end in `.js`, e.g. `index.js`, `remoteEntry.js`. The key is the name of the output file.
+ *
+ * The only other allowed entry in `entries.index`, which is used to replace the default HTML entry. The `html` template
+ * must not include script tags pointing to entrypoints, they will be injected automatically.
  *
  * @param name MFE name.
  * @param entries Entries aliases and paths.
+ * @param entries.index Optional index.html entry.
  */
 export const mfe = (name: string, entries: { [_ in string]: string }): PluginOption => [
     mfeBase(name),
     mfeEsm(entries),
-    mfeHtml(entries),
-    mfeCss(name),
-    mfeSolid(name),
+    // mfeHtml(entries),
+    mfeCss(),
+    mfeSolid(),
     mfeReact(),
 ]
 
 /**
  * MfeBase plugin sets configurations for proper MFE loading in production builds or development server.
+ * This plugin also defines a `MFE` environment variable, which can be used by other plugins and by runtime code.
  *
  * ### Build
  *
- * `base: /` loads assets from `<origin>/path/to/asset`. However, MFEs are served from their own origin.
+ * `base: /` loads assets from `<origin>/path/to/asset`. However, MFEs are usually served from their own origin.
  * `base: ./` causes assets to be fetched from `new URL('./path/to/asset', import.meta.url)`, `import.meta.url` is
  * relative to the MFE script loading the asset, which comes from the proper origin.
  *
@@ -55,7 +63,7 @@ const mfeBase = (name: string): Plugin => ({
     name: 'mfe:base',
     config: ({ server: { port = 5173 } = {} }, { mode }) => ({
         base: './',
-        define: { 'import.meta.env.NAME': JSON.stringify(name) },
+        define: { 'import.meta.env.MFE': JSON.stringify(name) },
         server: { cors: true, origin: mode === 'development' ? `http://localhost:${port}` : undefined },
         preview: { cors: true },
     }),
@@ -109,8 +117,12 @@ const mfeEsm = (entries: { [_ in string]: string }): Plugin => ({
  * @param entries Entries aliases and paths.
  */
 const mfeHtml = (entries: { [_ in string]: string }): Plugin => {
-    const scripts = Object.values(entries).map(entry => `<script type="module" src="/${entry}"></script>`)
-    const indexHtml = indexHtmlTemplate.replace('</head>', `${scripts.join('')}</head>`)
+    const { index, scripts } = entries
+    const script2s = Object.entries(entries)
+        .filter(([key]) => key !== 'index')
+        .map(([, value]) => `<script type="module" src="/${value}"></script>`)
+        .join('')
+    const indexHtml = index.replace('</head>', `${script2s}</head>`)
     return {
         name: 'mfe:html',
         config: () => ({ build: { rollupOptions: { input: { index: 'index.html' } } } }),
@@ -126,7 +138,7 @@ const mfeHtml = (entries: { [_ in string]: string }): Plugin => {
 /**
  * MfeCss plugin changes Vite's CSS handling to allow injection into JS using custom events.
  *
- * `${env.NAME}-styles` event publishes styles. `${env.NAME}-styles-request` is used to re-fire the event.
+ * `${env.MFE}-styles` event publishes styles. `${env.MFE}-styles-request` is used to re-fire the event.
  * The events can be listened to build style tags dynamically, it works with HMR and lazy loading.
  *
  * ### Build
@@ -140,23 +152,32 @@ const mfeHtml = (entries: { [_ in string]: string }): Plugin => {
  *
  * @param name MFE name.
  */
-const mfeCss = (name: string): Plugin => {
-    const dispatch = (name: ImportMetaEnv['NAME'], id: string, style: string) => {
-        const setup = !window[`${name}-styles`]
-        const styles = (window[`${name}-styles`] ??= {})
+const mfeCss = (): Plugin => {
+    const dispatch = (id: string, style: string) => {
+        const mfe = import.meta.env.MFE
+        const setup = !window[`${mfe}-styles`]
+        const styles = (window[`${mfe}-styles`] ??= {})
         styles[id] = style
-        const event = () => new CustomEvent(`${name}-styles`, { detail: Object.values(styles).join('\n') })
-        if (setup) addEventListener(`${name}-styles-request`, () => dispatchEvent(event()))
-        dispatchEvent(new Event(`${name}-styles-request`))
+        const event = () => new CustomEvent(`${mfe}-styles`, { detail: Object.values(styles).join('') })
+        if (setup) addEventListener(`${mfe}-styles-request`, () => dispatchEvent(event()))
+        dispatchEvent(new Event(`${mfe}-styles-request`))
     }
     return {
         name: 'mfe:css',
         enforce: 'post',
         transform: code =>
             code
-                .replace(/__vite__updateStyle\(.+?\)/, `;(${dispatch})(\`${name}\`,__vite__id,__vite__css)`)
-                .replace(/__vite__removeStyle\(.+?\)/, `(${dispatch})(\`${name}\`,__vite__id,'')`),
-        generateBundle: (_, bundle) => {
+                .replace(/__vite__updateStyle\(.+?\)/, `;(${dispatch})(__vite__id,__vite__css)`)
+                .replace(/__vite__removeStyle\(.+?\)/, `(${dispatch})(__vite__id,'')`),
+        async generateBundle(_, bundle) {
+            const dispatchConfig: InlineConfig = {
+                logLevel: 'silent',
+                configFile: false,
+                define: this.environment.config.define,
+                build: { target: this.environment.config.build.target, rollupOptions: { input: 'dispatch' } },
+                plugins: [{ name: '-', resolveId: id => id, load: () => `(${dispatch})(args)` }],
+            }
+            const dispatchCompiled = ((await build(dispatchConfig)) as RollupOutput).output[0].code
             const html = Object.values(bundle).filter(({ fileName }) => fileName.endsWith('.html')) as OutputAsset[]
             const css = Object.values(bundle).filter(({ fileName }) => fileName.endsWith('.css')) as OutputAsset[]
             const js = Object.values(bundle).filter(({ fileName }) => fileName.endsWith('.js')) as OutputChunk[]
@@ -164,8 +185,8 @@ const mfeCss = (name: string): Plugin => {
             js.forEach(chunk => {
                 const styles = css.filter(({ fileName }) => chunk.viteMetadata?.importedCss.has(fileName))
                 if (!styles.length) return
-                const style = styles.map(({ source }) => source.toString().trim().replaceAll('`', '\\`')).join('\n')
-                chunk.code = `${chunk.code}\n\n;(${dispatch})(\`${name}\`,\`${chunk.name}\`,\`${style}\`)`
+                const style = styles.map(({ source }) => source.toString().trim().replaceAll('`', '\\`')).join('')
+                chunk.code = `${chunk.code}\n;${dispatchCompiled.replace('(args)', `(\`${chunk.name}\`,\`${style}\`)`)}`
                 chunk.viteMetadata?.importedCss.clear()
             })
         },
@@ -176,15 +197,16 @@ const mfeCss = (name: string): Plugin => {
  * MfeSolid plugin enables injection of a custom container to replace `window.document` in `solid-js/web`.
  *
  * This is required when using `@webcomponents/scoped-custom-element-registry` to use a shadow DOM as document.
- * Injection works by setting `window[`${env.NAME}-shadow`] to a `WeakRef` of the shadow root to be used.
- *
- * @param name MFE name.
+ * Injection works by setting `window[`${env.MFE}-shadow`] to a `WeakRef` of the shadow root to be used.
  */
-const mfeSolid = (name: string): Plugin => ({
+const mfeSolid = (): Plugin => ({
     name: 'mfe:solid',
     transform: code => {
         const ms = new MagicString(code)
-        ms.replaceAll('document.importNode', `(window[\`${name}-shadow\`]?.deref()??document).importNode`)
+        ms.replaceAll(
+            'document.importNode',
+            `(window[\`\${import.meta.env.MFE}-shadow\`]?.deref()??document).importNode`,
+        )
         return { code: ms.toString(), map: ms.generateMap({ hires: true }) }
     },
 })
