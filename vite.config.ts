@@ -1,15 +1,12 @@
-import { defineConfig, Plugin } from 'vite'
-
-const mfeKey: Plugin = {
-    name: 'mfe:key',
-    enforce: 'post',
-    transform: code => code.replaceAll(/['"`]__key__['"`]/g, 'import.meta.env.KEY'),
-}
+import { defineConfig } from 'vite'
 
 export default defineConfig({
     build: {
         lib: { entry: ['./src/index.ts', './src/plugin.ts'], formats: ['es'] },
         rollupOptions: { external: ['vite', 'rollup', 'magic-string'] },
     },
-    plugins: [mfeKey],
+    plugins: [
+        { name: 'keepEnv', enforce: 'pre', transform: code => code.replaceAll('import.meta.env', '_import.meta.env') },
+        { name: 'keepEnv', enforce: 'post', transform: code => code.replaceAll('_import.meta.env', 'import.meta.env') },
+    ],
 })
