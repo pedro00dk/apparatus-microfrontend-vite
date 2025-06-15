@@ -6,11 +6,11 @@ A [Vite](https://vitejs.dev/) plugin and a runtime utility for building and mana
 
 ## Key Features
 
--   **Vite Plugin**: Simplifies the configuration and build process for MFEs.
--   **ES Module Support**: Leverages native ES modules for loading and managing MFE dependencies.
--   **CSS Isolation**: Provides a mechanism for isolating CSS styles within each MFE.
--   **Shadow DOM**: Utilizes Shadow DOM to encapsulate MFE content and prevent style conflicts.
--   **React and SolidJS Support**: Includes specific fixes and adaptations for seamless integration with React and SolidJS.
+-   🛠️ **Vite Plugin**: Simplifies the configuration and build process for MFEs.
+-   📦 **ES Module Support**: Leverages native ES modules for loading and managing MFE dependencies.
+-   🎨 **CSS Isolation**: Provides a mechanism for isolating CSS styles within each MFE.
+-   🛡️ **Shadow DOM**: Utilizes Shadow DOM to encapsulate MFE content and prevent style conflicts.
+-   ⚛️ **React and SolidJS Support**: Includes specific fixes and adaptations for seamless integration with React and SolidJS.
 
 ## Installation
 
@@ -116,7 +116,7 @@ Bootstrap creates the MFE mount function. It does some MFE isolation procedures:
 
 Parameters:
 
--   options: `ShadowRootInit` options for the shadow DOM.
+-   `options`: `ShadowRootInit` options for the shadow DOM.
 -   `render`: A render function that receives the shadow DOM and any additional parameters. It must return a cleanup function that will be called when the MFE is unmounted.
 
 ```typescript
