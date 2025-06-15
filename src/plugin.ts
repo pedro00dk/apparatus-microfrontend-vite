@@ -1,6 +1,8 @@
 import MagicString from 'magic-string'
+import { readFileSync } from 'node:fs'
 import { OutputAsset, OutputChunk, RollupOutput } from 'rollup'
 import { build, InlineConfig, Plugin, PluginOption } from 'vite'
+import indexDefault from './index.html?raw'
 
 declare global {
     interface ImportMetaEnv {
@@ -23,10 +25,9 @@ declare global {
  *
  * The MFE `name` can be anything, as long as it is unique when used together with multiple MFEs in a host application.
  *
- * Script `entries` keys should end in `.js`, e.g. `index.js`, `remoteEntry.js`. The key is the name of the output file.
- *
- * The only other allowed entry in `entries.index`, which is used to replace the default HTML entry. The `html` template
- * must not include script tags pointing to entrypoints, they will be injected automatically.
+ * Script `entries` keys should end in `.js`, e.g. `index.js`, `remoteEntry.js`. The key is the output filename.
+ * Non-script entries are not supported, except for `index`, which replaces the template `index.html` file. It must not
+ * include scripts to entries, they are added automatically.
  *
  * @param name MFE name.
  * @param entries Entries aliases and paths.
@@ -35,7 +36,7 @@ declare global {
 export const mfe = (name: string, entries: { [_ in string]: string }): PluginOption => [
     mfeBase(name),
     mfeEsm(entries),
-    // mfeHtml(entries),
+    mfeHtml(entries),
     mfeCss(),
     mfeSolid(),
     mfeReact(),
@@ -85,25 +86,29 @@ const mfeBase = (name: string): Plugin => ({
  *
  * @param entries Entries aliases and paths.
  */
-const mfeEsm = (entries: { [_ in string]: string }): Plugin => ({
-    name: 'mfe:esm',
-    config: () => ({
-        build: {
-            modulePreload: false,
-            rollupOptions: {
-                input: entries,
-                output: { format: 'es', entryFileNames: ({ name }) => name },
-                preserveEntrySignatures: 'allow-extension',
+const mfeEsm = (entries: { [_ in string]: string }): Plugin => {
+    const { index: _, ...scripts } = entries
+    return {
+        name: 'mfe:esm',
+        config: () => ({
+            build: {
+                modulePreload: false,
+                rollupOptions: {
+                    input: scripts,
+                    output: { format: 'es', entryFileNames: ({ name }) => name },
+                    preserveEntrySignatures: 'allow-extension',
+                },
             },
-        },
-        server: { warmup: { clientFiles: Object.values(entries) } },
-    }),
-    configureServer: ({ middlewares }) =>
-        void middlewares.use((req, _, next) => ((req.url = entries[req.url!.slice(1)] ?? req.url), next())),
-})
+            server: { warmup: { clientFiles: Object.values(scripts) } },
+        }),
+        configureServer: ({ middlewares }) =>
+            void middlewares.use((req, _, next) => ((req.url = scripts[req.url!.slice(1)] ?? req.url), next())),
+    }
+}
 
 /**
- * MfeHtml plugin provides an [`index.html`](./vite.index.html) template that loads all `entries` modules.
+ * MfeHtml plugin provides an [`index.html`](./vite.index.html) template that loads all `entries` modules. It may also
+ * accept an `entries.index` to be used as template.
  *
  * ### Build
  *
@@ -117,12 +122,10 @@ const mfeEsm = (entries: { [_ in string]: string }): Plugin => ({
  * @param entries Entries aliases and paths.
  */
 const mfeHtml = (entries: { [_ in string]: string }): Plugin => {
-    const { index, scripts } = entries
-    const script2s = Object.entries(entries)
-        .filter(([key]) => key !== 'index')
-        .map(([, value]) => `<script type="module" src="/${value}"></script>`)
-        .join('')
-    const indexHtml = index.replace('</head>', `${script2s}</head>`)
+    const { index, ...scripts } = entries
+    const tags = Object.entries(scripts).map(([, value]) => `<script type="module" src="/${value}"></script>`)
+    const indexTemplate = index ? readFileSync(index).toString('utf-8') : indexDefault
+    const indexHtml = indexTemplate.replace('</head>', `${tags.join('')}</head>`)
     return {
         name: 'mfe:html',
         config: () => ({ build: { rollupOptions: { input: { index: 'index.html' } } } }),
@@ -175,7 +178,7 @@ const mfeCss = (): Plugin => {
                 configFile: false,
                 define: this.environment.config.define,
                 build: { target: this.environment.config.build.target, rollupOptions: { input: 'dispatch' } },
-                plugins: [{ name: '-', resolveId: id => id, load: () => `(${dispatch})(args)` }],
+                plugins: [{ name: '-', resolveId: id => id, load: () => `${dispatch}` }],
             }
             const dispatchCompiled = ((await build(dispatchConfig)) as RollupOutput).output[0].code
             const html = Object.values(bundle).filter(({ fileName }) => fileName.endsWith('.html')) as OutputAsset[]
