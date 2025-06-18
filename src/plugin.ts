@@ -178,7 +178,7 @@ const mfeCss = (): Plugin => {
                 configFile: false,
                 define: this.environment.config.define,
                 build: { target: this.environment.config.build.target, rollupOptions: { input: 'dispatch' } },
-                plugins: [{ name: '-', resolveId: id => id, load: () => `${dispatch}` }],
+                plugins: [{ name: '-', resolveId: id => id, load: () => `(${dispatch})(args)` }],
             }
             const dispatchCompiled = ((await build(dispatchConfig)) as RollupOutput).output[0].code
             const html = Object.values(bundle).filter(({ fileName }) => fileName.endsWith('.html')) as OutputAsset[]
