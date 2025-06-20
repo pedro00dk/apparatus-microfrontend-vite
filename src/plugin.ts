@@ -178,9 +178,9 @@ const mfeCss = (): Plugin => {
                 configFile: false,
                 define: this.environment.config.define,
                 build: { target: this.environment.config.build.target, rollupOptions: { input: 'dispatch' } },
-                plugins: [{ name: '-', resolveId: id => id, load: () => `(${dispatch})(args)` }],
+                plugins: [{ name: '-', resolveId: id => id, load: () => `(${dispatch})(__vite__id,__vite__css)` }],
             }
-            const dispatchCompiled = ((await build(dispatchConfig)) as RollupOutput).output[0].code
+            const compiled = ((await build(dispatchConfig)) as RollupOutput).output[0].code
             const html = Object.values(bundle).filter(({ fileName }) => fileName.endsWith('.html')) as OutputAsset[]
             const css = Object.values(bundle).filter(({ fileName }) => fileName.endsWith('.css')) as OutputAsset[]
             const js = Object.values(bundle).filter(({ fileName }) => fileName.endsWith('.js')) as OutputChunk[]
@@ -188,8 +188,9 @@ const mfeCss = (): Plugin => {
             js.forEach(chunk => {
                 const styles = css.filter(({ fileName }) => chunk.viteMetadata?.importedCss.has(fileName))
                 if (!styles.length) return
-                const style = styles.map(({ source }) => source.toString().trim().replaceAll('`', '\\`')).join('')
-                chunk.code = `${chunk.code}\n;${dispatchCompiled.replace('(args)', `(\`${chunk.name}\`,\`${style}\`)`)}`
+                const id = JSON.stringify(chunk.name)
+                const style = JSON.stringify(styles.map(({ source }) => source.toString().trim()).join(''))
+                chunk.code = `${chunk.code}\n;${compiled.replace('(__vite__id,__vite__css)', `(${id},${style})`)}`
                 chunk.viteMetadata?.importedCss.clear()
             })
         },
