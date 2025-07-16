@@ -22,6 +22,11 @@ export type MfeModule<TParams = object, TExports = object> = {
 export const getMfe = (): ImportMetaEnv['MFE'] => import.meta.env.MFE
 
 /**
+ * A FinalizationRegistry instance used to abort event handlers for garbage collected `getStyle` elements.
+ */
+const finalizationRegistry = new FinalizationRegistry<AbortController>(abort => abort.abort())
+
+/**
  * Create a style element and connects it to the plugin's `mfe:css` events.
  *
  * All styles are written to the style element when it is imported, also works for asynchronous modules or chunks.
@@ -31,9 +36,9 @@ export const getStyle = () => {
     const ref = new WeakRef(style)
     const abort = new AbortController()
     const { signal } = abort
-    new FinalizationRegistry<AbortController>(abort => abort.abort()).register(style, abort)
     addEventListener(`${getMfe()}-styles`, e => ref.deref()?.replaceChildren(e.detail), { signal })
     dispatchEvent(new CustomEvent(`${getMfe()}-styles-request`))
+    finalizationRegistry.register(style, abort)
     return style
 }
 
